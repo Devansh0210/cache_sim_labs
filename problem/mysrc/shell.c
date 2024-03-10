@@ -69,20 +69,25 @@ d_cache_mem_t* dcache;
 /* Purpose: Read a 32-bit word from memory                     */
 /*                                                             */
 /***************************************************************/
-uint32_t mem_read_32(uint32_t address)
+int mem_read_32(uint32_t address, uint32_t* val)
 {
-    pipe.mem_stall = DCACHE_MISS_DELAY;
+    if (pipe.mem_read_stall > 0) {
+        pipe.mem_read_stall--;
+        return -1;
+    }
+    pipe.mem_read_stall = DCACHE_MISS_DELAY;
     int status = d_read_cache(dcache, address);
     if(status == HIT) {
-        pipe.mem_stall= 0;
+        pipe.mem_read_stall= 0;
     } else if (status == CLEAN_MISS || status == DIRTY_MISS) {
-        pipe.mem_stall= DCACHE_MISS_DELAY;
+        pipe.mem_read_stall= DCACHE_MISS_DELAY;
     } else {
         printf("ERROR: invalid status from read_cache! \n");
         return 0;
     }
-
-    return icache->out_data;
+    
+    *val = dcache->out_data;
+    return 0;
 }
 /***************************************************************/
 /*                                                             */
@@ -93,6 +98,10 @@ uint32_t mem_read_32(uint32_t address)
 /***************************************************************/
 uint32_t mem_read_32_inst(uint32_t address)
 {
+    if (pipe.fetch_stall > 0) {
+        pipe.fetch_stall--; return -1;
+    }
+
     pipe.fetch_stall = ICACHE_MISS_DELAY;
     int status = read_cache(icache, address);
     if(status == HIT) {
@@ -101,10 +110,16 @@ uint32_t mem_read_32_inst(uint32_t address)
         pipe.fetch_stall = ICACHE_MISS_DELAY;
     } else {
         printf("ERROR: invalid status from read_cache! \n");
-        return 0;
+        return -1;
+    }
+    
+    if(pipe.fetch_stall > 0){
+        // pipe.fetch_stall--;
+        return -1;
     }
 
-    return icache->out_data;
+    pipe.fetched_instr = icache->out_data;
+    return 0;
 }
 /***************************************************************/
 /*                                                             */
@@ -113,9 +128,13 @@ uint32_t mem_read_32_inst(uint32_t address)
 /* Purpose: Write a 32-bit word to memory                      */
 /*                                                             */
 /***************************************************************/
-void mem_write_32(uint32_t address, uint32_t value)
+int mem_write_32(uint32_t address, uint32_t value)
 {
-    pipe.mem_stall = DCACHE_MISS_DELAY;
+    if (pipe.mem_write_stall > 0) {
+        pipe.mem_write_stall--;
+        return -1;
+    }
+    pipe.mem_write_stall = DCACHE_MISS_DELAY;
     
     int status = d_write_cache(dcache, address, (uint8_t)(value & 0xff));
     (void)d_write_cache(dcache, address+1, (uint8_t)((value >> 8) & 0xff));
@@ -124,15 +143,15 @@ void mem_write_32(uint32_t address, uint32_t value)
     
      
     if(status == HIT) {
-        pipe.mem_stall = 0;
+        pipe.mem_write_stall = 0;
     } else if (status == CLEAN_MISS || status == DIRTY_MISS) {
-        pipe.mem_stall = DCACHE_MISS_DELAY;
+        pipe.mem_write_stall = DCACHE_MISS_DELAY;
     } else {
         printf("ERROR: invalid status from read_cache! \n");
-        return;
+        return -1;
     }
 
-    return;
+    return 0;
 }
 
 /***************************************************************/
@@ -248,9 +267,13 @@ void mdump(int start, int stop) {
 
   printf("\nMemory content [0x%08x..0x%08x] :\n", start, stop);
   printf("-------------------------------------\n");
-  for (address = start; address <= stop; address += 4)
-    printf("  0x%08x (%d) : 0x%08x\n", address, address, mem_read_32(address));
+  uint32_t val;
+  for (address = start; address <= stop; address += 4) {
+    mem_read_32(address, &val);
+    printf("  0x%08x (%d) : 0x%08x\n", address, address, val);
+  }
   printf("\n");
+
 }
 
 /***************************************************************/

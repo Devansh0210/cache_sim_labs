@@ -88,7 +88,7 @@ void pipe_cycle()
         pipe.branch_recover = 0;
         pipe.branch_dest = 0;
         pipe.branch_flush = 0;
-
+        // pipe.fetching = 0;
         stat_squash++;
     }
 }
@@ -141,6 +141,7 @@ void pipe_stage_wb()
 void pipe_stage_mem()
 {
     /* if there is no instruction in this pipeline stage, we are done */
+    int status;
     if (!pipe.mem_op)
         return;
 
@@ -160,15 +161,16 @@ void pipe_stage_mem()
         case OP_LB:
         case OP_LBU:
             {
-                if(pipe.mem_stall > 0){ 
-                    pipe.mem_stall--;
+                // if(pipe.mem_stall > 0){ 
+                //     pipe.mem_stall--;
+                //     return;
+                // } else {
+                //     val = mem_read_32(op->mem_addr & ~3);
+                //     if(pipe.mem_stall > 0) { pipe.mem_stall --; return; }
+                // }
+                status = mem_read_32(op->mem_addr & ~3, &val);
+                if(status < 0)
                     return;
-                } else {
-                    val = mem_read_32(op->mem_addr & ~3);
-                    if(pipe.mem_stall > 0) { pipe.mem_stall --; return; }
-                }
-
-
                 /* extract needed value */
                 op->reg_dst_value_ready = 1;
                 if (op->opcode == OP_LW) {
@@ -216,14 +218,18 @@ void pipe_stage_mem()
                 case 2: val = (val & 0xFF00FFFF) | ((op->mem_value & 0xFF) << 16); break;
                 case 3: val = (val & 0x00FFFFFF) | ((op->mem_value & 0xFF) << 24); break;
             }
-
-            if(pipe.mem_stall > 0){
-                pipe.mem_stall--;
+            
+            int status = mem_write_32(op->mem_addr & ~3, val);
+            if (status < 0){
                 return;
-            } else{
-                mem_write_32(op->mem_addr & ~3, val);
-                if(pipe.mem_stall > 0) { pipe.mem_stall --; return; }
             }
+            // if(pipe.mem_stall > 0){
+            //     pipe.mem_stall--;
+            //     return;
+            // } else{
+            //     mem_write_32(op->mem_addr & ~3, val);
+            //     if(pipe.mem_stall > 0) { pipe.mem_stall --; return; }
+            // }
             break;
 
         case OP_SH:
@@ -238,25 +244,17 @@ void pipe_stage_mem()
             printf("new word %08x\n", val);
 #endif
 
-            if(pipe.mem_stall > 0){
-                pipe.mem_stall--;
+            status = mem_read_32(op->mem_addr & ~3, &val);
+            if(status < 0)
                 return;
-            } else{
-                mem_write_32(op->mem_addr & ~3, val);
-                if(pipe.mem_stall > 0) { pipe.mem_stall --; return; }
-            }
             break;
 
         case OP_SW:
             val = op->mem_value;
 
-            if(pipe.mem_stall > 0){
-                pipe.mem_stall--;
+            status = mem_read_32(op->mem_addr & ~3, &val);
+            if(status < 0)
                 return;
-            } else{
-                mem_write_32(op->mem_addr & ~3, val);
-                if(pipe.mem_stall > 0) { pipe.mem_stall --; return; }
-            }
 
             break;
     }
@@ -714,18 +712,23 @@ void pipe_stage_fetch()
     if (pipe.decode_op != NULL)
         return;
     //TRY FETCH, stall till necessary
-    if(!pipe.fetching) {
-        pipe.fetched_instr = mem_read_32_inst(pipe.PC);
-        pipe.fetching = TRUE;
-    }
 
-    if (pipe.fetch_stall > 0) {
-        #ifdef DEBUG
-        printf("DEBUG::FETCH: waiting for fetch stall\n");
-        #endif
-        pipe.fetch_stall--;
+    int status = mem_read_32_inst(pipe.PC);
+    if (status < 0)
         return;
-    }
+
+    // if(!pipe.fetching) {
+    //     pipe.fetched_instr = mem_read_32_inst(pipe.PC);
+    //     pipe.fetching = TRUE;
+    // }
+
+    // if (pipe.fetch_stall > 0) {
+    //     #ifdef DEBUG
+    //     printf("DEBUG::FETCH: waiting for fetch stall\n");
+    //     #endif
+    //     pipe.fetch_stall--;
+    //     return;
+    // }
     /* Allocate an op and send it down the pipeline. */
     Pipe_Op *op = malloc(sizeof(Pipe_Op));
     memset(op, 0, sizeof(Pipe_Op));
